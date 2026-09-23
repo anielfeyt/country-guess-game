@@ -43,3 +43,6 @@ next-env.d.ts
 # local worktrees and agent scratch
 /.claude/worktrees/
 /.superpowers/
+
+# data build downloads
+/.cache/
