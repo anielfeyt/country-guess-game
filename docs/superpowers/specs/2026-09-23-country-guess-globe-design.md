@@ -51,7 +51,7 @@ A browser game where the player types country names to find a randomly chosen se
 ### 4.1 Source and generated files
 - **Source:** Natural Earth admin-0 countries, 1:50m, downloaded by the build script into a git-ignored cache.
 - **Mixed resolution:** tiny countries (see 4.3) take their geometry from Natural Earth **1:10m**, so their real shapes are recognizable when zoomed in. All other features use 1:50m. Distances for tiny countries are also computed from the 1:10m geometry.
-- **`public/data/countries.geojson`:** simplified polygons for every feature, including drawn territories, so the land looks complete. Properties are trimmed to `{ iso2, name, playable, labelLat, labelLng, area }`.
+- **`public/data/countries.geojson`:** simplified polygons for every feature, including drawn territories, so the land looks complete. Properties are trimmed to `{ a3, iso2 (null if not playable), name, playable, tiny, labelLat, labelLng, areaKm2 }`.
 - **`public/data/distances.json`:** a nearest-border distance matrix in km, rounded to whole km, over all **playable** countries. It is stored as an ordered ISO index list plus a flat upper-triangle array.
 - The generated files are committed. The build script runs only through `pnpm data:build`, not on every `pnpm build`.
 
@@ -63,10 +63,12 @@ A browser game where the player types country names to find a randomly chosen se
 ### 4.3 Playable set and exclusions
 - **Playable = guessable = possible secret.** All sovereign and commonly recognized countries (UN members plus observers, and Kosovo and Taiwan), about 197 in total, **including micro-states**.
 - **Tiny countries:** those with land area **< 1,000 km²**, about 25 of them (e.g. Vatican City, Monaco, San Marino, Liechtenstein, Andorra, Malta, Singapore, Bahrain, Maldives, St Lucia, Grenada, Barbados, Tuvalu, Nauru, Palau). Each is flagged `tiny: true` in `src/data/countries.ts`.
-  - Each tiny country has a representative point (`markerLat`, `markerLng`).
-  - Since tiny countries use 1:10m data, every one of them is expected to have a polygon. If one is still missing, it exists only as a point. Its distances are computed from that point: point-to-edge against polygons, point-to-point against other point-only countries.
+  - A tiny country's marker ring sits at its Natural Earth label point (`labelLat`, `labelLng`).
+  - All 25 tiny countries have 1:10m polygons (verified 2026-09-23). The data build fails loudly if any playable country lacks geometry.
+- **Merged features:** Natural Earth's Somaliland is merged into Somalia, and Northern Cyprus into Cyprus. Antarctica and Siachen Glacier are drawn as plain land and can't be guessed.
+- **Neighbors (0 km)** are detected from shared arcs in a TopoJSON topology built from the **1:50m** geometry for every country, so Vatican–Italy and San Marino–Italy count as 0 km even though those two are drawn from 1:10m.
 - **Excluded (territories only):** dependent territories and disputed areas that may be drawn as land but aren't countries in this game, e.g. Greenland (Denmark), Western Sahara, Puerto Rico (USA), Falkland Islands (UK), New Caledonia (France).
-  - Typing one is recognized and doesn't count as a guess. The player sees "*X* is a territory of *Y*, not a country in this game."
+  - Typing one is recognized and doesn't count as a guess. The player sees "*X* isn't a country in this game — it's *reason*." (e.g. "…it's a territory of Denmark.")
   - Drawn territories are colored as ordinary land and are never colored by guesses.
 - **`docs/excluded-countries.md`** lists every excluded entry with its reason. `src/data/excluded.ts` is the source of truth, and a unit test checks that the doc lists exactly the same entries.
 
@@ -77,7 +79,7 @@ A browser game where the player types country names to find a randomly chosen se
 ## 5. Game logic
 
 ### 5.1 Normalization
-Lowercase → strip diacritics (NFD + remove combining marks) → `&` becomes `and` → remove punctuation → collapse whitespace → drop a leading `the `.
+Strip diacritics (NFD + remove combining marks) → lowercase → delete apostrophes (so "d'Ivoire" becomes "divoire") → `&` becomes `and` → `st`/`st.` before a space becomes `saint` → any other punctuation becomes a space → collapse whitespace → drop a leading `the `.
 
 ### 5.2 `matchCountry(input)`
 Returns one of:
@@ -97,12 +99,13 @@ Blank input is ignored before matching is called.
 ```ts
 type Status = "playing" | "won" | "gaveUp";
 interface Guess { iso2: string; km: number; order: number }
-interface State { secret: string; guesses: Guess[]; status: Status; overlayOn: boolean; lastEvent: Event | null }
+interface Focus { iso2: string; seq: number; repeat: boolean }  // camera target; seq bumps on every request
+interface State { secret: string; difficult: boolean; guesses: Guess[]; status: Status; overlayOn: boolean; focus: Focus | null }
 ```
 Actions:
 - **`GUESS(iso2)`:**
   - Ignored unless the status is `playing`.
-  - A repeated guess doesn't add a new entry. It sets `lastEvent = alreadyGuessed(iso2)`, and the UI flies the camera to that country again.
+  - A repeated guess doesn't add a new entry. It sets `focus = { iso2, seq: seq + 1, repeat: true }`. The UI shows "You already guessed X." and flies the camera to that country again.
   - If `iso2 === secret`, the status becomes `won`.
 - **`GIVE_UP`:** the status becomes `gaveUp`.
 - **`NEW_GAME`:** picks a new random secret, different from the previous one, and clears the guesses. `overlayOn` stays as it was.
@@ -110,7 +113,7 @@ Actions:
   - The state carries `difficult: boolean` (= the secret is tiny).
 - **`TOGGLE_OVERLAY`.**
 
-The random source is injected so tests are deterministic.
+The reducer is pure. Randomness lives in `pickSecret(rand, previous)`, which takes an injectable `rand: () => number`. The caller passes its result in the `NEW_GAME` action (`{ type: "NEW_GAME", secret }`). Likewise, `GUESS` carries the km already looked up (`{ type: "GUESS", iso2, km }`).
 
 ### 5.5 Clue text
 - km = 0: "Shares a border!"
@@ -140,7 +143,7 @@ The random source is injected so tests are deterministic.
 - **Give up:** fly to the secret, fill it with `WIN_COLOR` plus an outline, and show the banner "It was *Name*." with **New game**.
 - **Overlay on:**
   - Every country gets a visible border stroke.
-  - Name labels are placed at the label points. Label size scales with log(area).
+  - Name labels are placed at the label points. The largest countries (≥ 1,000,000 km²) get a bigger label font.
   - Labels of smaller countries are hidden until the camera altitude drops below a threshold, so the zoomed-out view isn't cluttered.
   - Guessed colors stay visible under the overlay.
 - **Interaction:** drag to rotate, scroll or pinch to zoom.
@@ -172,7 +175,7 @@ When `difficult` is true, a dismissible amber notice appears under the top bar a
   - `matchCountry`: exact names, aliases (USA, UK, Ivory Coast, Burma, St Lucia / Saint Lucia), accents ("cote divoire"), typos ("Kyrgzystan" → Kyrgyzstan, "Phillipines" → Philippines, "Argentinia" → Argentina, "Grenda" → Grenada), excluded territory ("Greenland"), gibberish → none.
   - `heatColor`: 0 km, 8000 km, clamping above 8000 km, monotonic lightness.
   - Reducer: a guess adds an entry; a repeat guess doesn't add one; a correct guess wins; guesses after a win are ignored; give up; a new game resets and picks a different secret; the overlay toggle survives a new game; with a seeded random source, the tiny pool is chosen when rand < 0.1 and sets `difficult`.
-  - Data checks: France–Spain = 0; Germany–Poland = 0; UK–France small (< 100 km); Australia–Brazil large (> 10,000 km); the matrix is symmetric with a zero diagonal; every playable country has geometry or a marker point (tiny countries must have a marker), a flag class, a distance row and a unique name; Grenada–St Vincent is small (< 200 km); every alias resolves to exactly one country; `docs/excluded-countries.md` matches `src/data/excluded.ts`.
+  - Data checks: France–Spain = 0; Germany–Poland = 0; UK–France small (< 100 km); Australia–Brazil large (> 8,000 km; the prototype measured 9,704); the matrix is symmetric with a zero diagonal; every playable country has geometry or a marker point (tiny countries must have a marker), a flag class, a distance row and a unique name; Grenada–St Vincent is small (< 200 km); every alias resolves to exactly one country; `docs/excluded-countries.md` matches `src/data/excluded.ts`.
 - **Manual browser check** via Chrome DevTools MCP: play a full round covering a typo, did-you-mean, several guesses, a tiny-country guess (ring visible, then zoom in until the ring fades and the colored Grenada/Malta shape is visible), a forced difficult round (warning visible), the overlay toggle, the win banner, give-up and a new game. Take screenshots and check the console for errors.
 
 ## 9. Tooling
