@@ -93,7 +93,14 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
     const globe = globeRef.current;
     const feature = focus ? byIso.get(focus.iso2) : undefined;
     if (!globe || !feature) return;
-    globe.controls().autoRotate = false;
+    const controls = globe.controls();
+    controls.autoRotate = false;
+    // Flush the damped auto-rotate momentum; otherwise it keeps turning the camera after the flight lands
+    // (by ~0.4° at low frame rates, enough to push a micro-state off-screen at deep zoom).
+    const damping = controls.enableDamping;
+    controls.enableDamping = false;
+    controls.update();
+    controls.enableDamping = damping;
     const { labelLat, labelLng, tiny } = feature.properties;
     globe.pointOfView({ lat: labelLat, lng: labelLng, altitude: tiny ? 0.4 : 2 }, FLY_MS);
   }, [focus, byIso]);
