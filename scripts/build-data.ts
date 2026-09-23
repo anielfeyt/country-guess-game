@@ -80,16 +80,15 @@ async function main() {
 
   // 2. Land neighbours = shared arcs in a 1:50m topology.
   const ids = [...groups.keys()];
-  const topo = topology({
-    countries: {
-      type: "FeatureCollection",
-      features: ids.map((id) => ({
-        type: "Feature" as const,
-        properties: {},
-        geometry: { type: "MultiPolygon" as const, coordinates: groups.get(id)!.polys },
-      })),
-    },
-  });
+  const collection: FeatureCollection<MultiPolygon> = {
+    type: "FeatureCollection",
+    features: ids.map((id) => ({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "MultiPolygon", coordinates: groups.get(id)!.polys },
+    })),
+  };
+  const topo = topology({ countries: collection });
   const adjacency = neighbors((topo.objects.countries as GeometryCollection).geometries);
   const neighbourPairs = new Set<string>();
   adjacency.forEach((list, i) => list.forEach((j) => neighbourPairs.add(`${ids[i]}|${ids[j]}`)));
