@@ -1,36 +1,25 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Country Guess Globe
 
-## Getting Started
+Guess the secret country on a 3D globe. Each guess is colored by how close its nearest border is to the secret country: deep red means neighbours, pale means far away, and green means found. The panel on the right lists your guesses with flags and the distance clue. **Show names & borders** turns on a learning overlay.
 
-First, run the development server:
+About 1 in 10 rounds is a **difficult round**, where the secret is a micro-state (land < 1,000 km²). Zoom in close to see them.
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev          # http://localhost:3000  (dev only: ?secret=fr forces the secret)
+pnpm test         # unit + data tests
+pnpm lint
+pnpm build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Data
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`public/data/countries.geojson` and `public/data/distances.json` are generated from [Natural Earth](https://www.naturalearthdata.com/) admin-0 boundaries and committed:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm data:build   # downloads into .cache/, ~1–2 minutes
+```
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Countries live in `src/data/countries.ts`. Recognised non-country places are in `src/data/excluded.ts`, documented in `docs/excluded-countries.md`.
