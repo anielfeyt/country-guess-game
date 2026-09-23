@@ -14,6 +14,7 @@ describe("normalize", () => {
     ["st lucia", "saint lucia"],
     ["East Timor", "east timor"],
     ["Türkiye", "turkiye"],
+    ["Côte d’Ivoire", "cote divoire"],
     ["   ", ""],
   ])("%s → %s", (input, expected) => {
     expect(normalize(input)).toBe(expected);
