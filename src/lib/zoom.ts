@@ -16,3 +16,12 @@ export function labelMaxAltitude(areaKm2: number): number {
   if (areaKm2 >= 2_000) return 0.6;
   return 0.3;
 }
+
+/**
+ * Camera clip planes for a given altitude (globe radii). globe.gl's defaults (near 0.05, far 125,000) leave
+ * ~0.075 units of depth precision at normal viewing distance, so caps, strokes and ocean z-fight. Scaling
+ * near with the distance to the surface keeps precision far below the smallest gap between layers.
+ */
+export function depthRange(altitude: number, radius: number): { near: number; far: number } {
+  return { near: Math.max(0.05, altitude * radius * 0.3), far: radius * (altitude + 3) };
+}

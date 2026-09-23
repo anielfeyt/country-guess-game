@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import Globe, { type GlobeMethods } from "react-globe.gl";
-import { MeshPhongMaterial } from "three";
+import { MeshPhongMaterial, type Object3D, type PerspectiveCamera } from "three";
+import { buildBorderLines, buildLandMesh } from "@/src/lib/globeMeshes";
 import { hexToRgb } from "@/src/lib/heat";
+import { createLocator } from "@/src/lib/locate";
 import type { CountryFeature } from "@/src/lib/types";
-import { labelMaxAltitude, ringAlpha } from "@/src/lib/zoom";
+import { depthRange, labelMaxAltitude, ringAlpha } from "@/src/lib/zoom";
 
 export interface GlobeViewProps {
   features: CountryFeature[];
@@ -18,13 +20,18 @@ export interface GlobeViewProps {
 const SPACE = "#050814";
 const OCEAN = "#0b2a4a";
 const LAND = "#3f4a5a";
-const OVERLAY_BORDER = "rgba(255,255,255,0.45)";
+const RAISED_SIDE = "#1e2530";
+const OVERLAY_BORDER = "#ffffff";
+const OVERLAY_BORDER_OPACITY = 0.45;
 const GUESSED_BORDER = "rgba(15,23,42,0.9)";
 const REVEAL_BORDER = "#ffffff";
-// Never `false`: three-globe only lifts a stroke above its cap when the polygon's altitude changes, so a stroke
-// switched on later (overlay toggle) would stay hidden under the land. A transparent stroke exists from the start.
-const HIDDEN_BORDER = "rgba(0,0,0,0)";
 const NEUTRAL_RING = "#e5e7eb";
+
+// three-globe's globe radius; layer altitudes are fractions of it.
+const GLOBE_RADIUS = 100;
+const LAND_ALTITUDE = 0.002;
+const BORDER_ALTITUDE = 0.0025;
+const RAISED_ALTITUDE = 0.006;
 
 const MIN_ALTITUDE = 0.025;
 const MAX_ALTITUDE = 4;
@@ -44,16 +51,39 @@ interface RingDatum {
   color: string;
 }
 
+type LayerDatum = { kind: "land" } | { kind: "borders" };
+
+// Module-level so their identity is stable. A new function or array per render makes react-globe.gl rebuild the layer.
+const LAYERS: LayerDatum[] = [{ kind: "land" }, { kind: "borders" }];
+const keepCustomObject = () => {}; // without an update fn the custom layer clears and rebuilds on every update
 const isoOf = (d: object) => (d as CountryFeature).properties.iso2;
-// Module-level so their identity is stable. A new function per render makes react-globe.gl rebuild the layer.
-const sideColor = () => "rgba(0,0,0,0.25)";
+const raisedSide = () => RAISED_SIDE;
+const raisedAltitude = () => RAISED_ALTITUDE;
 const markLabelSide = (el: HTMLElement, visible: boolean) => {
   el.dataset.front = String(visible);
 };
 
+// The border object stays in the scene; toggling visibility avoids three-globe disposing and rebuilding it.
+function setVisible(object: Object3D, visible: boolean) {
+  object.visible = visible;
+}
+
+function applyDepthRange(globe: GlobeMethods, altitude: number) {
+  const camera = globe.camera() as PerspectiveCamera;
+  const { near, far } = depthRange(altitude, globe.getGlobeRadius());
+  if (camera.near === near && camera.far === far) return;
+  camera.near = near;
+  camera.far = far;
+  camera.updateProjectionMatrix();
+}
+
 export default function GlobeView({ features, colors, outlined, overlayOn, focus }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
+  const hoverFrame = useRef(0);
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
+  const scheduleHoverRef = useRef<() => void>(() => {});
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [altitude, setAltitude] = useState(INITIAL_ALTITUDE);
 
@@ -69,10 +99,24 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
 
   const oceanMaterial = useMemo(() => new MeshPhongMaterial({ color: OCEAN, shininess: 6 }), []);
 
+  // All un-guessed land and all overlay borders are single objects: ~1,900 island polygons would otherwise
+  // each cost a draw call (7,600 per frame including sides and strokes).
+  const landMesh = useMemo(() => buildLandMesh(features, GLOBE_RADIUS, LAND_ALTITUDE, LAND), [features]);
+  const borderLines = useMemo(
+    () => buildBorderLines(features, GLOBE_RADIUS, BORDER_ALTITUDE, OVERLAY_BORDER, OVERLAY_BORDER_OPACITY),
+    [features],
+  );
+  useEffect(() => setVisible(borderLines, overlayOn), [borderLines, overlayOn]);
+  const customObject = useCallback(
+    (d: object) => ((d as LayerDatum).kind === "land" ? landMesh : borderLines),
+    [landMesh, borderLines],
+  );
+
   const byIso = useMemo(
     () => new Map(features.filter((f) => f.properties.iso2).map((f) => [f.properties.iso2 as string, f])),
     [features],
   );
+  const locate = useMemo(() => createLocator(features), [features]);
 
   const handleReady = useCallback(() => {
     const globe = globeRef.current;
@@ -87,6 +131,7 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
       controls.autoRotate = false;
     });
     globe.pointOfView({ altitude: INITIAL_ALTITUDE });
+    applyDepthRange(globe, INITIAL_ALTITUDE);
   }, []);
 
   useEffect(() => {
@@ -106,6 +151,8 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   }, [focus, byIso]);
 
   const handleZoom = useCallback(({ altitude: alt }: { altitude: number }) => {
+    if (globeRef.current) applyDepthRange(globeRef.current, alt);
+    if (lastPointer.current) scheduleHoverRef.current();
     containerRef.current?.querySelectorAll<HTMLElement>(".globe-label").forEach((el) => {
       el.dataset.zoomHidden = String(alt > Number(el.dataset.maxAlt));
     });
@@ -113,26 +160,51 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
     setAltitude((prev) => (prev === rounded ? prev : rounded));
   }, []);
 
-  // Polygon accessors: only change when game colours / overlay change, not on zoom.
+  // Hover names come from a lat/lng lookup instead of three.js raycasting against every polygon. The lookup
+  // re-runs when the pointer moves and when the camera moves under a still pointer.
+  const scheduleHover = useCallback(() => {
+    cancelAnimationFrame(hoverFrame.current);
+    hoverFrame.current = requestAnimationFrame(() => {
+      const tooltip = tooltipRef.current;
+      const pointer = lastPointer.current;
+      if (!tooltip) return;
+      const coords = pointer ? globeRef.current?.toGlobeCoords(pointer.x, pointer.y) : null;
+      const feature = coords ? locate(coords.lat, coords.lng) : null;
+      const iso = feature?.properties.iso2;
+      const show = pointer && feature && (overlayOn || (iso != null && colors.has(iso)));
+      tooltip.hidden = !show;
+      if (!show) return;
+      tooltip.textContent = feature.properties.name;
+      tooltip.style.transform = `translate(${pointer.x + 14}px, ${pointer.y + 14}px)`;
+    });
+  }, [locate, overlayOn, colors]);
+  useEffect(() => {
+    scheduleHoverRef.current = scheduleHover;
+    scheduleHover(); // overlay / guesses changed under the pointer
+  }, [scheduleHover]);
+  useEffect(() => () => cancelAnimationFrame(hoverFrame.current), []);
+
+  const handlePointerMove = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      // No names while dragging the globe.
+      lastPointer.current = e.buttons === 0 ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : null;
+      scheduleHover();
+    },
+    [scheduleHover],
+  );
+  const handlePointerLeave = useCallback(() => {
+    lastPointer.current = null;
+    scheduleHover();
+  }, [scheduleHover]);
+
+  // Only guessed / revealed countries are real polygons: raised, with side walls and outlines.
+  const raisedData = useMemo(
+    () => features.filter((f) => f.properties.iso2 !== null && colors.has(f.properties.iso2)),
+    [features, colors],
+  );
   const capColor = useCallback((d: object) => colors.get(isoOf(d) ?? "") ?? LAND, [colors]);
-  const strokeColor = useCallback(
-    (d: object) => {
-      const iso = isoOf(d);
-      if (iso && iso === outlined) return REVEAL_BORDER;
-      if (iso && colors.has(iso)) return GUESSED_BORDER;
-      return overlayOn ? OVERLAY_BORDER : HIDDEN_BORDER;
-    },
-    [colors, outlined, overlayOn],
-  );
-  const polygonAltitude = useCallback((d: object) => (colors.has(isoOf(d) ?? "") ? 0.006 : 0.002), [colors]);
-  const polygonLabel = useCallback(
-    (d: object) => {
-      const f = d as CountryFeature;
-      const known = f.properties.iso2 !== null && colors.has(f.properties.iso2);
-      return known || overlayOn ? `<b>${f.properties.name}</b>` : "";
-    },
-    [colors, overlayOn],
-  );
+  const strokeColor = useCallback((d: object) => (isoOf(d) === outlined ? REVEAL_BORDER : GUESSED_BORDER), [outlined]);
 
   const labelData = useMemo<LabelDatum[]>(
     () =>
@@ -181,7 +253,12 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   );
 
   return (
-    <div ref={containerRef} className="absolute inset-0">
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
+    >
       {size.width > 0 && size.height > 0 && (
         <Globe
           ref={globeRef}
@@ -192,14 +269,17 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
           showAtmosphere
           atmosphereColor="#5b8def"
           atmosphereAltitude={0.15}
+          enablePointerInteraction={false}
           onGlobeReady={handleReady}
           onZoom={handleZoom}
-          polygonsData={features}
+          customLayerData={LAYERS}
+          customThreeObject={customObject}
+          customThreeObjectUpdate={keepCustomObject}
+          polygonsData={raisedData}
           polygonCapColor={capColor}
-          polygonSideColor={sideColor}
+          polygonSideColor={raisedSide}
           polygonStrokeColor={strokeColor}
-          polygonAltitude={polygonAltitude}
-          polygonLabel={polygonLabel}
+          polygonAltitude={raisedAltitude}
           polygonsTransitionDuration={300}
           ringsData={ringData}
           ringLat="lat"
@@ -217,6 +297,11 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
           htmlElementVisibilityModifier={markLabelSide}
         />
       )}
+      <div
+        ref={tooltipRef}
+        hidden
+        className="pointer-events-none absolute left-0 top-0 z-10 rounded-md bg-slate-900/90 px-2 py-1 text-sm font-semibold text-white shadow-lg"
+      />
     </div>
   );
 }
