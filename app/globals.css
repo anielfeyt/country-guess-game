@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@theme {
+  --color-space: #050814;
+  --color-panel: #0c1322;
+
+  --animate-shake: shake 0.35s ease-in-out;
+  --animate-flash: flash 1.5s ease-out;
+  --animate-pop: pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+  }
+  @keyframes flash {
+    from { background-color: rgb(250 204 21 / 0.35); }
+    to { background-color: transparent; }
+  }
+  @keyframes pop {
+    0% { transform: scale(0.6); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
   }
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+}
+
+body {
+  background: var(--color-space);
+  color: #e2e8f0;
+}
+
+/* Country-name labels rendered by the globe's HTML layer (overlay mode). */
+.globe-label {
+  color: #f8fafc;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 3px #000, 0 0 6px #000;
+}
+.globe-label[data-big="true"] {
+  font-size: 14px;
+}
+.globe-label[data-front="false"],
+.globe-label[data-zoom-hidden="true"] {
+  display: none;
 }
