@@ -21,6 +21,9 @@ const LAND = "#3f4a5a";
 const OVERLAY_BORDER = "rgba(255,255,255,0.45)";
 const GUESSED_BORDER = "rgba(15,23,42,0.9)";
 const REVEAL_BORDER = "#ffffff";
+// Never `false`: three-globe only lifts a stroke above its cap when the polygon's altitude changes, so a stroke
+// switched on later (overlay toggle) would stay hidden under the land. A transparent stroke exists from the start.
+const HIDDEN_BORDER = "rgba(0,0,0,0)";
 const NEUTRAL_RING = "#e5e7eb";
 
 const MIN_ALTITUDE = 0.025;
@@ -110,7 +113,7 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
       const iso = isoOf(d);
       if (iso && iso === outlined) return REVEAL_BORDER;
       if (iso && colors.has(iso)) return GUESSED_BORDER;
-      return overlayOn ? OVERLAY_BORDER : false;
+      return overlayOn ? OVERLAY_BORDER : HIDDEN_BORDER;
     },
     [colors, outlined, overlayOn],
   );
