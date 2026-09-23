@@ -22,7 +22,7 @@ export default function TopBar({ guessCount, overlayOn, canGiveUp, onToggleOverl
         onClick={onToggleOverlay}
         className={`${button} ${overlayOn ? "border-sky-400 bg-sky-500/25 text-sky-100" : ""}`}
       >
-        {overlayOn ? "Hide names & borders" : "Show names & borders"}
+        Show names & borders
       </button>
       <button type="button" onClick={onGiveUp} disabled={!canGiveUp} className={button}>
         Give up

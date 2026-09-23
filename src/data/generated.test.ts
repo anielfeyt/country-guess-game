@@ -31,6 +31,17 @@ describe("countries.geojson", () => {
     expect(a3s).not.toContain("SOL");
     expect(a3s).not.toContain("CYN");
   });
+  test("every playable feature has a finite in-range label position", () => {
+    for (const f of geo.features.filter((f) => f.properties.playable)) {
+      const { labelLat, labelLng } = f.properties;
+      expect(Number.isFinite(labelLat), f.properties.name).toBe(true);
+      expect(Number.isFinite(labelLng), f.properties.name).toBe(true);
+      expect(labelLat, f.properties.name).toBeGreaterThanOrEqual(-90);
+      expect(labelLat, f.properties.name).toBeLessThanOrEqual(90);
+      expect(labelLng, f.properties.name).toBeGreaterThanOrEqual(-180);
+      expect(labelLng, f.properties.name).toBeLessThanOrEqual(180);
+    }
+  });
 });
 
 describe("distances.json", () => {

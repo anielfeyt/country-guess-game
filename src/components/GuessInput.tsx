@@ -66,12 +66,13 @@ export default function GuessInput({ onGuess, externalMessage, disabled }: Guess
         spellCheck={false}
         aria-label="Guess a country"
         placeholder={disabled ? "Round over — start a new game" : "Type a country and press Enter"}
+        name="guess"
         className={`w-full rounded-lg border border-white/15 bg-slate-900/80 px-4 py-2.5 text-base text-white shadow-lg outline-none backdrop-blur placeholder:text-slate-400 focus:border-sky-400 disabled:opacity-60 ${
           shaking ? "animate-shake" : ""
         }`}
       />
       <div className="mt-1.5 min-h-6 text-sm" aria-live="polite">
-        {result?.kind === "suggest" ? (
+        {disabled ? null : result?.kind === "suggest" ? (
           <span className="flex flex-wrap items-center gap-1.5 text-slate-200">
             Did you mean:
             {result.countries.map((c, i) => (

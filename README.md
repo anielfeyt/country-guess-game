@@ -22,4 +22,4 @@ pnpm build
 pnpm data:build   # downloads into .cache/, ~1–2 minutes
 ```
 
-Countries live in `src/data/countries.ts`. Recognised non-country places are in `src/data/excluded.ts`, documented in `docs/excluded-countries.md`.
+Countries live in `src/data/countries.ts`. Recognised non-country places are in `src/data/excluded.ts`, documented in `docs/excluded-countries.md`. Some of France's and the Netherlands' overseas regions (e.g. French Guiana, the Caribbean Netherlands) are part of those countries' map features, so they're drawn, coloured and counted in distances as France/the Netherlands, even though guessing their own name shows the "not a country" message.

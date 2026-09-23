@@ -4,6 +4,8 @@ Every sovereign country (193 UN members plus Vatican City, Palestine, Kosovo and
 
 The places below are **not** countries in this game. Typing one shows an explanation and does not count as a guess. Most are still drawn on the globe as plain land. The source of truth is `src/data/excluded.ts`, and `src/data/countries.test.ts` checks that this table matches it.
 
+A handful of overseas regions aren't drawn as separate land at all: in Natural Earth's admin-0 boundaries, France's feature includes French Guiana, Guadeloupe, Martinique, Réunion and Mayotte, and the Netherlands' feature includes the Caribbean Netherlands (Bonaire, Sint Eustatius, Saba). Those areas are coloured and counted as part of France or the Netherlands for guessing purposes — guessing France also colours French Guiana, and a France guess can land 0 km from Brazil or Suriname — even though typing the overseas region's own name still shows the "not a country" message above.
+
 | Name | Why it's excluded |
 |---|---|
 | Greenland | a territory of Denmark |

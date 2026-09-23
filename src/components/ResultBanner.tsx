@@ -24,6 +24,7 @@ export default function ResultBanner({ status, guessCount, secretName, onNewGame
         <button
           type="button"
           onClick={onNewGame}
+          autoFocus
           className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-200"
         >
           New game

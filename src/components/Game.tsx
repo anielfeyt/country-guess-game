@@ -30,6 +30,7 @@ export default function Game() {
   const [state, dispatch] = useReducer(gameReducer, null, () => createGame(initialSecret()));
 
   useEffect(() => {
+    if (!webgl) return;
     let cancelled = false;
     loadGameData()
       .then((d) => {
@@ -41,7 +42,7 @@ export default function Game() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, webgl]);
 
   const colors = useMemo(() => {
     const map = new Map<string, string>();
