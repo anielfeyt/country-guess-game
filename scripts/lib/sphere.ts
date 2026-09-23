@@ -81,7 +81,10 @@ export function buildShape(multiPolygon: number[][][][]): Shape {
 }
 
 function directed(from: Shape, to: Shape, ub: number, best: number): number {
-  const ptReach = to.radius + ub;
+  // Pruning is exact: the true nearest pair (p, q) has q on a `to` segment, so q is within
+  // to.maxSeg of a `to` vertex (≤ to.radius from to.center) and p is within ub of q.
+  // Symmetrically, that segment's start vertex is within from.radius + ub + to.maxSeg of from.center.
+  const ptReach = to.radius + ub + to.maxSeg;
   const segReach = from.radius + ub + to.maxSeg;
   const points = from.pts.filter((p) => angle(p, to.center) <= ptReach);
   const segs = to.segs.filter(([s]) => angle(s, from.center) <= segReach);
