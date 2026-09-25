@@ -1,8 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from "react";
 import Globe, { type GlobeMethods } from "react-globe.gl";
-import { MeshPhongMaterial, type Object3D, type PerspectiveCamera } from "three";
+import {
+  MeshPhongMaterial,
+  type Object3D,
+  type PerspectiveCamera,
+} from "three";
 import { buildBorderLines, buildLandMesh } from "@/src/lib/globeMeshes";
 import { hexToRgb } from "@/src/lib/heat";
 import { createLocator } from "@/src/lib/locate";
@@ -15,6 +26,8 @@ export interface GlobeViewProps {
   outlined: string | null;
   overlayOn: boolean;
   focus: { iso2: string; seq: number } | null;
+  /** Changes when a new game starts: the camera flies back out and resumes auto-rotating. */
+  resetKey: string;
 }
 
 const SPACE = "#050814";
@@ -68,6 +81,18 @@ function setVisible(object: Object3D, visible: boolean) {
   object.visible = visible;
 }
 
+type Controls = ReturnType<GlobeMethods["controls"]>;
+
+// Flush the damped rotation momentum (auto-rotate or a user fling); otherwise it keeps turning the camera
+// after a flight lands (by ~0.4° at low frame rates, enough to push a micro-state off-screen at deep zoom).
+function stopRotation(controls: Controls) {
+  controls.autoRotate = false;
+  const damping = controls.enableDamping;
+  controls.enableDamping = false;
+  controls.update();
+  controls.enableDamping = damping;
+}
+
 function applyDepthRange(globe: GlobeMethods, altitude: number) {
   const camera = globe.camera() as PerspectiveCamera;
   const { near, far } = depthRange(altitude, globe.getGlobeRadius());
@@ -77,7 +102,14 @@ function applyDepthRange(globe: GlobeMethods, altitude: number) {
   camera.updateProjectionMatrix();
 }
 
-export default function GlobeView({ features, colors, outlined, overlayOn, focus }: GlobeViewProps) {
+export default function GlobeView({
+  features,
+  colors,
+  outlined,
+  overlayOn,
+  focus,
+  resetKey,
+}: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
@@ -91,19 +123,35 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
     const el = containerRef.current;
     if (!el) return;
     const observer = new ResizeObserver(([entry]) =>
-      setSize({ width: entry.contentRect.width, height: entry.contentRect.height }),
+      setSize({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      }),
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
 
-  const oceanMaterial = useMemo(() => new MeshPhongMaterial({ color: OCEAN, shininess: 6 }), []);
+  const oceanMaterial = useMemo(
+    () => new MeshPhongMaterial({ color: OCEAN, shininess: 6 }),
+    [],
+  );
 
   // All un-guessed land and all overlay borders are single objects: ~1,900 island polygons would otherwise
   // each cost a draw call (7,600 per frame including sides and strokes).
-  const landMesh = useMemo(() => buildLandMesh(features, GLOBE_RADIUS, LAND_ALTITUDE, LAND), [features]);
+  const landMesh = useMemo(
+    () => buildLandMesh(features, GLOBE_RADIUS, LAND_ALTITUDE, LAND),
+    [features],
+  );
   const borderLines = useMemo(
-    () => buildBorderLines(features, GLOBE_RADIUS, BORDER_ALTITUDE, OVERLAY_BORDER, OVERLAY_BORDER_OPACITY),
+    () =>
+      buildBorderLines(
+        features,
+        GLOBE_RADIUS,
+        BORDER_ALTITUDE,
+        OVERLAY_BORDER,
+        OVERLAY_BORDER_OPACITY,
+      ),
     [features],
   );
   useEffect(() => setVisible(borderLines, overlayOn), [borderLines, overlayOn]);
@@ -113,7 +161,12 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   );
 
   const byIso = useMemo(
-    () => new Map(features.filter((f) => f.properties.iso2).map((f) => [f.properties.iso2 as string, f])),
+    () =>
+      new Map(
+        features
+          .filter((f) => f.properties.iso2)
+          .map((f) => [f.properties.iso2 as string, f]),
+      ),
     [features],
   );
   const locate = useMemo(() => createLocator(features), [features]);
@@ -138,24 +191,42 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
     const globe = globeRef.current;
     const feature = focus ? byIso.get(focus.iso2) : undefined;
     if (!globe || !feature) return;
-    const controls = globe.controls();
-    controls.autoRotate = false;
-    // Flush the damped auto-rotate momentum; otherwise it keeps turning the camera after the flight lands
-    // (by ~0.4° at low frame rates, enough to push a micro-state off-screen at deep zoom).
-    const damping = controls.enableDamping;
-    controls.enableDamping = false;
-    controls.update();
-    controls.enableDamping = damping;
+    stopRotation(globe.controls());
     const { labelLat, labelLng, tiny } = feature.properties;
-    globe.pointOfView({ lat: labelLat, lng: labelLng, altitude: tiny ? 0.4 : 2 }, FLY_MS);
+    globe.pointOfView(
+      { lat: labelLat, lng: labelLng, altitude: tiny ? 0.4 : 2 },
+      FLY_MS,
+    );
   }, [focus, byIso]);
+
+  const lastResetKey = useRef(resetKey);
+  useEffect(() => {
+    const globe = globeRef.current;
+    if (!globe || lastResetKey.current === resetKey) return;
+    lastResetKey.current = resetKey;
+    const controls = globe.controls();
+    stopRotation(controls);
+    globe.pointOfView({ lat: 0, lng: globe.pointOfView().lng, altitude: INITIAL_ALTITUDE }, FLY_MS);
+    // Resume spinning once the flight lands, unless the player grabs the globe first.
+    const timer = setTimeout(() => {
+      controls.autoRotate = true;
+    }, FLY_MS);
+    const cancel = () => clearTimeout(timer);
+    controls.addEventListener("start", cancel);
+    return () => {
+      cancel();
+      controls.removeEventListener("start", cancel);
+    };
+  }, [resetKey]);
 
   const handleZoom = useCallback(({ altitude: alt }: { altitude: number }) => {
     if (globeRef.current) applyDepthRange(globeRef.current, alt);
     if (lastPointer.current) scheduleHoverRef.current();
-    containerRef.current?.querySelectorAll<HTMLElement>(".globe-label").forEach((el) => {
-      el.dataset.zoomHidden = String(alt > Number(el.dataset.maxAlt));
-    });
+    containerRef.current
+      ?.querySelectorAll<HTMLElement>(".globe-label")
+      .forEach((el) => {
+        el.dataset.zoomHidden = String(alt > Number(el.dataset.maxAlt));
+      });
     const rounded = Math.round(alt * 50) / 50;
     setAltitude((prev) => (prev === rounded ? prev : rounded));
   }, []);
@@ -168,10 +239,13 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
       const tooltip = tooltipRef.current;
       const pointer = lastPointer.current;
       if (!tooltip) return;
-      const coords = pointer ? globeRef.current?.toGlobeCoords(pointer.x, pointer.y) : null;
+      const coords = pointer
+        ? globeRef.current?.toGlobeCoords(pointer.x, pointer.y)
+        : null;
       const feature = coords ? locate(coords.lat, coords.lng) : null;
       const iso = feature?.properties.iso2;
-      const show = pointer && feature && (overlayOn || (iso != null && colors.has(iso)));
+      const show =
+        pointer && feature && (overlayOn || (iso != null && colors.has(iso)));
       tooltip.hidden = !show;
       if (!show) return;
       tooltip.textContent = feature.properties.name;
@@ -188,7 +262,10 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
     (e: PointerEvent<HTMLDivElement>) => {
       const rect = e.currentTarget.getBoundingClientRect();
       // No names while dragging the globe.
-      lastPointer.current = e.buttons === 0 ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : null;
+      lastPointer.current =
+        e.buttons === 0
+          ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+          : null;
       scheduleHover();
     },
     [scheduleHover],
@@ -200,16 +277,29 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
 
   // Only guessed / revealed countries are real polygons: raised, with side walls and outlines.
   const raisedData = useMemo(
-    () => features.filter((f) => f.properties.iso2 !== null && colors.has(f.properties.iso2)),
+    () =>
+      features.filter(
+        (f) => f.properties.iso2 !== null && colors.has(f.properties.iso2),
+      ),
     [features, colors],
   );
-  const capColor = useCallback((d: object) => colors.get(isoOf(d) ?? "") ?? LAND, [colors]);
-  const strokeColor = useCallback((d: object) => (isoOf(d) === outlined ? REVEAL_BORDER : GUESSED_BORDER), [outlined]);
+  const capColor = useCallback(
+    (d: object) => colors.get(isoOf(d) ?? "") ?? LAND,
+    [colors],
+  );
+  const strokeColor = useCallback(
+    (d: object) => (isoOf(d) === outlined ? REVEAL_BORDER : GUESSED_BORDER),
+    [outlined],
+  );
 
   const labelData = useMemo<LabelDatum[]>(
     () =>
       features
-        .filter((f) => f.properties.playable || (f.properties.areaKm2 > 100_000 && f.properties.a3 !== "ATA"))
+        .filter(
+          (f) =>
+            f.properties.playable ||
+            (f.properties.areaKm2 > 100_000 && f.properties.a3 !== "ATA"),
+        )
         .map((f) => ({
           lat: f.properties.labelLat,
           lng: f.properties.labelLng,
@@ -234,7 +324,12 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   const ringData = useMemo<RingDatum[]>(
     () =>
       features
-        .filter((f) => f.properties.tiny && f.properties.iso2 && (colors.has(f.properties.iso2) || overlayOn))
+        .filter(
+          (f) =>
+            f.properties.tiny &&
+            f.properties.iso2 &&
+            (colors.has(f.properties.iso2) || overlayOn),
+        )
         .map((f) => ({
           lat: f.properties.labelLat,
           lng: f.properties.labelLng,
@@ -247,7 +342,8 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   const ringColor = useCallback(
     (d: object) => {
       const [r, g, b] = hexToRgb((d as RingDatum).color);
-      return (t: number) => `rgba(${r},${g},${b},${((1 - t) * alpha).toFixed(3)})`;
+      return (t: number) =>
+        `rgba(${r},${g},${b},${((1 - t) * alpha).toFixed(3)})`;
     },
     [alpha],
   );
@@ -255,7 +351,7 @@ export default function GlobeView({ features, colors, outlined, overlayOn, focus
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0"
+      className="absolute inset-0 z-0"
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
     >

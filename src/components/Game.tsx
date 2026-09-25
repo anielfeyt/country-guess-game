@@ -7,11 +7,11 @@ import { heatColor, WIN_COLOR } from "@/src/lib/heat";
 import { loadGameData, type GameData } from "@/src/lib/loadData";
 import { hasWebGL } from "@/src/lib/webgl";
 import DifficultNotice from "./DifficultNotice";
+import GameControls from "./GameControls";
 import GlobeView from "./GlobeView";
 import GuessInput from "./GuessInput";
 import GuessList from "./GuessList";
 import ResultBanner from "./ResultBanner";
-import TopBar from "./TopBar";
 
 /** In development, `?secret=gd` forces the secret country (used for manual testing). */
 function initialSecret(): string {
@@ -106,6 +106,7 @@ export default function Game() {
           outlined={state.status === "gaveUp" ? state.secret : null}
           overlayOn={state.overlayOn}
           focus={state.focus}
+          resetKey={state.secret}
         />
         <div className="pointer-events-none absolute inset-x-0 top-0 p-3 md:p-4">
           <div className="pointer-events-auto mx-auto flex max-w-2xl flex-col gap-2">
@@ -114,14 +115,6 @@ export default function Game() {
               onGuess={handleGuess}
               disabled={state.status !== "playing"}
               externalMessage={repeatName ? `You already guessed ${repeatName}.` : null}
-            />
-            <TopBar
-              guessCount={state.guesses.length}
-              overlayOn={state.overlayOn}
-              canGiveUp={state.status === "playing"}
-              onToggleOverlay={() => dispatch({ type: "TOGGLE_OVERLAY" })}
-              onGiveUp={() => dispatch({ type: "GIVE_UP" })}
-              onNewGame={newGame}
             />
             {state.difficult && (
               <div className="flex">
@@ -137,7 +130,14 @@ export default function Game() {
           onNewGame={newGame}
         />
       </main>
-      <aside className="h-[40vh] border-t border-white/10 bg-panel md:h-auto md:w-80 md:border-l md:border-t-0">
+      <aside className="flex h-[40vh] flex-col border-t border-white/10 bg-panel md:h-auto md:w-96 md:border-l md:border-t-0">
+        <GameControls
+          overlayOn={state.overlayOn}
+          canGiveUp={state.status === "playing"}
+          onToggleOverlay={() => dispatch({ type: "TOGGLE_OVERLAY" })}
+          onGiveUp={() => dispatch({ type: "GIVE_UP" })}
+          onNewGame={newGame}
+        />
         <GuessList guesses={state.guesses} secret={state.secret} />
       </aside>
     </div>

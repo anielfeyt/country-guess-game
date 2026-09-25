@@ -11,9 +11,10 @@ interface GuessListProps {
 export default function GuessList({ guesses, secret }: GuessListProps) {
   const latest = guesses.length;
   return (
-    <section className="flex h-full flex-col">
-      <h2 className="border-b border-white/10 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
+    <section className="flex min-h-0 flex-1 flex-col">
+      <h2 className="flex items-baseline justify-between border-b border-white/10 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-300">
         Your guesses
+        <span className="tabular-nums text-slate-400">{guesses.length}</span>
       </h2>
       {guesses.length === 0 ? (
         <p className="px-4 py-6 text-sm text-slate-400">Type a country and press Enter.</p>
