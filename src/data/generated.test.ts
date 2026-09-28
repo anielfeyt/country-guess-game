@@ -20,6 +20,7 @@ describe("countries.geojson", () => {
       expect(matches, c.name).toHaveLength(1);
       expect(matches[0].properties.playable).toBe(true);
       expect(matches[0].properties.tiny).toBe(c.tiny === true);
+      expect(matches[0].properties.areaKm2, c.name).toBe(c.areaKm2);
       expect(matches[0].geometry.coordinates.length, c.name).toBeGreaterThan(0);
     }
   });

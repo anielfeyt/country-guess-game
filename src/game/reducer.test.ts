@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { COUNTRIES } from "@/src/data/countries";
-import { createGame, gameReducer, pickSecret, sortedGuesses, TINY_ROUND_P, type GameState } from "./reducer";
+import { COUNTRY_BY_ISO } from "@/src/data/countries";
+import { DIFFICULTIES, difficultyOf } from "./difficulty";
+import { createGame, gameReducer, pickSecret, sortedGuesses, type GameState } from "./reducer";
 
 /** Deterministic rand that returns the given values in order. */
 const seq = (...values: number[]) => {
@@ -8,27 +9,24 @@ const seq = (...values: number[]) => {
   return () => values[i++ % values.length];
 };
 
-const firstTiny = COUNTRIES.find((c) => c.tiny)!.iso2; // "ad"
-const firstRegular = COUNTRIES.find((c) => !c.tiny)!.iso2; // "af"
-const secondRegular = COUNTRIES.filter((c) => !c.tiny)[1].iso2; // "al"
-
 describe("pickSecret", () => {
-  test("uses the tiny pool when rand < TINY_ROUND_P", () => {
-    expect(pickSecret(seq(TINY_ROUND_P - 0.01, 0), null)).toBe(firstTiny);
-  });
-  test("uses the regular pool otherwise", () => {
-    expect(pickSecret(seq(0.5, 0), null)).toBe(firstRegular);
+  test("picks from the chosen difficulty's pool", () => {
+    expect(pickSecret(seq(0), null, "easy")).toBe("af");
+    expect(pickSecret(seq(0), null, "moderate")).toBe("at");
+    expect(pickSecret(seq(0), null, "hard")).toBe("al");
   });
   test("never repeats the previous secret", () => {
-    expect(pickSecret(seq(0.5, 0), firstRegular)).toBe(secondRegular);
+    expect(pickSecret(seq(0), "af", "easy")).toBe("dz");
   });
-  test("difficult rounds happen roughly 1 in 10 times", () => {
-    let tiny = 0;
+  test("only ever returns countries of the chosen difficulty", () => {
     let x = 0.123;
     const rand = () => (x = (x * 9301 + 49297) % 233280) / 233280;
-    for (let i = 0; i < 5000; i++) if (createGame(pickSecret(rand, null)).difficult) tiny++;
-    expect(tiny / 5000).toBeGreaterThan(0.07);
-    expect(tiny / 5000).toBeLessThan(0.13);
+    for (const { value } of DIFFICULTIES) {
+      for (let i = 0; i < 500; i++) {
+        const secret = COUNTRY_BY_ISO.get(pickSecret(rand, null, value))!;
+        expect(difficultyOf(secret), secret.name).toBe(value);
+      }
+    }
   });
 });
 
@@ -67,11 +65,19 @@ describe("gameReducer", () => {
     expect(s.focus?.iso2).toBe("fr");
   });
 
-  test("new game resets but keeps the overlay setting", () => {
+  test("new game resets, applies its difficulty and keeps the overlay setting", () => {
     let s = gameReducer(start(), { type: "TOGGLE_OVERLAY" });
     s = gameReducer(s, { type: "GUESS", iso2: "es", km: 0 });
-    s = gameReducer(s, { type: "NEW_GAME", secret: "gd" });
-    expect(s).toEqual({ secret: "gd", difficult: true, guesses: [], status: "playing", overlayOn: true, focus: null });
+    s = gameReducer(s, { type: "NEW_GAME", secret: "gd", difficulty: "hard" });
+    expect(s).toEqual({
+      secret: "gd",
+      difficulty: "hard",
+      difficult: true,
+      guesses: [],
+      status: "playing",
+      overlayOn: true,
+      focus: null,
+    });
   });
 });
 

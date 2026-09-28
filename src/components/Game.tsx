@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { COUNTRY_BY_ISO, type Country } from "@/src/data/countries";
-import { createGame, gameReducer, pickSecret } from "@/src/game/reducer";
+import { DEFAULT_DIFFICULTY, difficultyOf, isDifficulty, type Difficulty } from "@/src/game/difficulty";
+import { createGame, gameReducer, pickSecret, type GameState } from "@/src/game/reducer";
 import { heatColor, WIN_COLOR } from "@/src/lib/heat";
 import { loadGameData, type GameData } from "@/src/lib/loadData";
 import { hasWebGL } from "@/src/lib/webgl";
@@ -13,13 +14,33 @@ import GuessInput from "./GuessInput";
 import GuessList from "./GuessList";
 import ResultBanner from "./ResultBanner";
 
-/** In development, `?secret=gd` forces the secret country (used for manual testing). */
-function initialSecret(): string {
-  if (process.env.NODE_ENV !== "production") {
-    const forced = new URLSearchParams(window.location.search).get("secret")?.toLowerCase();
-    if (forced && COUNTRY_BY_ISO.has(forced)) return forced;
+const DIFFICULTY_KEY = "country-guess:difficulty";
+
+function loadDifficulty(): Difficulty {
+  try {
+    const stored = localStorage.getItem(DIFFICULTY_KEY);
+    return isDifficulty(stored) ? stored : DEFAULT_DIFFICULTY;
+  } catch {
+    return DEFAULT_DIFFICULTY;
   }
-  return pickSecret(Math.random, null);
+}
+
+function saveDifficulty(difficulty: Difficulty) {
+  try {
+    localStorage.setItem(DIFFICULTY_KEY, difficulty);
+  } catch {
+    // Storage unavailable (private mode, blocked site data): the choice just won't persist.
+  }
+}
+
+/** In development, `?secret=gd` forces the secret country (used for manual testing). */
+function initialGame(): GameState {
+  if (process.env.NODE_ENV !== "production") {
+    const forced = COUNTRY_BY_ISO.get(new URLSearchParams(window.location.search).get("secret")?.toLowerCase() ?? "");
+    if (forced) return createGame(forced.iso2, difficultyOf(forced));
+  }
+  const difficulty = loadDifficulty();
+  return createGame(pickSecret(Math.random, null, difficulty), difficulty);
 }
 
 export default function Game() {
@@ -27,7 +48,7 @@ export default function Game() {
   const [data, setData] = useState<GameData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [state, dispatch] = useReducer(gameReducer, null, () => createGame(initialSecret()));
+  const [state, dispatch] = useReducer(gameReducer, null, initialGame);
 
   useEffect(() => {
     if (!webgl) return;
@@ -60,8 +81,18 @@ export default function Game() {
     dispatch({ type: "GUESS", iso2: country.iso2, km });
   }
 
+  function startGame(difficulty: Difficulty) {
+    dispatch({ type: "NEW_GAME", secret: pickSecret(Math.random, state.secret, difficulty), difficulty });
+  }
+
   function newGame() {
-    dispatch({ type: "NEW_GAME", secret: pickSecret(Math.random, state.secret) });
+    startGame(state.difficulty);
+  }
+
+  function changeDifficulty(difficulty: Difficulty) {
+    if (difficulty === state.difficulty) return;
+    saveDifficulty(difficulty);
+    startGame(difficulty);
   }
 
   if (!webgl) {
@@ -137,6 +168,8 @@ export default function Game() {
           onToggleOverlay={() => dispatch({ type: "TOGGLE_OVERLAY" })}
           onGiveUp={() => dispatch({ type: "GIVE_UP" })}
           onNewGame={newGame}
+          difficulty={state.difficulty}
+          onChangeDifficulty={changeDifficulty}
         />
         <GuessList guesses={state.guesses} secret={state.secret} />
       </aside>
