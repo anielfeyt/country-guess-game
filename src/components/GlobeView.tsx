@@ -49,6 +49,8 @@ const RAISED_ALTITUDE = 0.006;
 const MIN_ALTITUDE = 0.025;
 const MAX_ALTITUDE = 4;
 const INITIAL_ALTITUDE = 2.5;
+// Furthest a fly-to leaves the camera from a micro-state (land < 1,000 km²).
+const TINY_ALTITUDE = 0.4;
 const FLY_MS = 1200;
 
 interface LabelDatum {
@@ -193,8 +195,10 @@ export default function GlobeView({
     if (!globe || !feature) return;
     stopRotation(globe.controls());
     const { labelLat, labelLng, tiny } = feature.properties;
+    // Keep the player's zoom, except zoom in far enough to see a micro-state.
+    const altitude = globe.pointOfView().altitude;
     globe.pointOfView(
-      { lat: labelLat, lng: labelLng, altitude: tiny ? 0.4 : 2 },
+      { lat: labelLat, lng: labelLng, altitude: tiny ? Math.min(altitude, TINY_ALTITUDE) : altitude },
       FLY_MS,
     );
   }, [focus, byIso]);
