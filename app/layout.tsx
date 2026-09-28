@@ -13,9 +13,14 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const title = "Country Guess Globe";
+const description = "Guess the secret country on a 3D globe — the redder, the closer.";
+
 export const metadata: Metadata = {
-  title: "Country Guess Globe",
-  description: "Guess the secret country on a 3D globe — the redder, the closer.",
+  title,
+  description,
+  openGraph: { title, description, type: "website" },
+  twitter: { card: "summary_large_image", title, description },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
